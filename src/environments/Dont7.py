@@ -31,8 +31,7 @@ class Dont7Env:
         self.last_agent_step = None
         self.last_env_step = None
         obs = self._build_obs()
-        info = self._build_info()
-        return obs, info
+        return obs
 
     def step(self, raw_llm: str) -> tuple[str, float, bool, dict]:
         move_str = self._extract_move(raw_llm)
