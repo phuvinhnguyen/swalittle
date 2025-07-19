@@ -90,12 +90,11 @@ class Trainer:
             done = False
 
             while (not done) and (len(states) < max_step):
-                state_tensor = torch.FloatTensor(state)
                 action = self.policy.act(state)
 
                 next_state, reward, done, _ = self.env.step(action)
 
-                states.append(state_tensor)
+                states.append(state)
                 actions.append(action)
                 rewards.append(reward)
                 losses.append(0.)
