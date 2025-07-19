@@ -1,0 +1,19 @@
+environment:
+  class: GymEnv.GymEnv
+  params:
+    env_name: "CartPole-v1"
+model:
+  class: simple.SimplePolicy
+  params:
+    state_dim: 4
+    action_dim: 2
+algo:
+  class: base.GRPO
+  params:
+    gamma: 0.9
+trainer:
+  log_name: "GRPO"
+  episodes_per_batch: 10
+  report_folder: "reports"
+  epochs: 50
+  max_step_each_time: [30, 40, 100]
