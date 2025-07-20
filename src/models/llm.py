@@ -71,13 +71,18 @@ class GeneralLLMWrapper(nn.Module):
         gen_cfg = self.generation_config.copy()
         if deterministic:
             gen_cfg['do_sample'] = False
-            gen_cfg['temperature'] = 1.0
+            gen_cfg['temperature'] = 0.
         input_ids = self.tokenizer([prompt], return_tensors='pt').input_ids.to(self.device)
         with torch.no_grad():
             output_ids = self.model.generate(input_ids, **gen_cfg)
         # Only return the generated part after the prompt
         gen_text = self.tokenizer.decode(output_ids[0][input_ids.shape[1]:], skip_special_tokens=True)
-        return gen_text.strip()
+
+        # remove <step> and </step>
+        if gen_text.startswith(prompt):
+            return gen_text
+        else:
+            return prompt + gen_text
 
     def forward(self, trajectories: List[Any]) -> List[List[torch.Tensor]]:
         """

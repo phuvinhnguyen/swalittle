@@ -59,7 +59,7 @@ class Dont7Env:
 
         obs = self._build_obs()
         info = self._build_info()
-        return obs, 0.0, False, info
+        return obs, 1.0, False, info
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -87,7 +87,7 @@ class Dont7Env:
 
     def _win(self, msg: str) -> tuple[str, float, bool, dict]:
         obs = msg + f"\nFinal total: {self.cur}"
-        return obs, 1.0, True, self._build_info()
+        return obs, 10.0, True, self._build_info()
 
     def _lose(self, msg: str) -> tuple[str, float, bool, dict]:
         obs = msg + f"\nFinal total: {self.cur}"
