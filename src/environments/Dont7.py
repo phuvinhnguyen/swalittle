@@ -20,8 +20,8 @@ class Dont7Env:
         Pull the content between <step> and </step>; fall back to the whole
         stripped string if tags are missing.
         """
-        m = raw.split('</step>')[0]
-        return m if m else raw.strip()
+        m = re.search(r"Answer:\n<step>\s*(\d+)\s*</step>", raw, flags=re.I | re.S)
+        return m.group(1) if m else raw.strip()
 
     # ------------------------------------------------------------------
     # Public API
@@ -59,7 +59,7 @@ class Dont7Env:
 
         obs = self._build_obs()
         info = self._build_info()
-        return obs, 2.0, False, info
+        return obs, 1.0, False, info
 
     # ------------------------------------------------------------------
     # Internal helpers

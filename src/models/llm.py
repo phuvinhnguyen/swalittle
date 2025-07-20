@@ -76,11 +76,11 @@ class GeneralLLMWrapper(nn.Module):
         with torch.no_grad():
             output_ids = self.model.generate(input_ids, **gen_cfg)
         # Only return the generated part after the prompt
-        gen_text = self.tokenizer.decode(output_ids[0][input_ids.shape[1]:], skip_special_tokens=True)
+        gen_text = self.tokenizer.decode(output_ids[0], skip_special_tokens=True)
 
         # remove <step> and </step>
-        if gen_text.startswith(prompt):
-            return gen_text[len(prompt):]
+        if not gen_text.startswith(prompt):
+            return prompt + gen_text
         
         return gen_text
 
@@ -96,7 +96,7 @@ class GeneralLLMWrapper(nn.Module):
         for traj in trajectories:
             traj_losses = []
             for state, action in zip(traj.states, traj.actions):
-                prompt = state + action
+                prompt = action
                 print(prompt)
                 inputs = self.tokenizer(prompt, return_tensors='pt').to(self.device)
                 labels = inputs['input_ids'].clone()
