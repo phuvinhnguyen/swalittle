@@ -20,7 +20,7 @@ class Dont7Env:
         Pull the content between <step> and </step>; fall back to the whole
         stripped string if tags are missing.
         """
-        m = re.search(r"<step>\s*(\d+)\s*</step>", raw, flags=re.I | re.S)
+        m = re.search(r"You will get minus point if your answer is not in this format.\nAnswer:\n<step>\s*(\d+)\s*</step>", raw, flags=re.I | re.S)
         return m.group(1) if m else raw.strip()
 
     # ------------------------------------------------------------------
@@ -43,7 +43,7 @@ class Dont7Env:
                 raise ValueError
         except ValueError:
             obs = "Invalid move. Please answer with <step>1</step> or <step>2</step>."
-            return obs, -1.0, True, self._build_info()
+            return obs, -5.0, True, self._build_info()
 
         self.last_agent_step = agent_step
         self.cur += agent_step
