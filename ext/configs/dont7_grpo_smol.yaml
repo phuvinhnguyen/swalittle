@@ -6,7 +6,7 @@ model:
   params:
     model_name_or_path: "HuggingFaceTB/SmolLM2-135M"
 algo:
-  class: base.GRPO
+  class: base.DrGRPO
   params:
     gamma: 0.9
 trainer:

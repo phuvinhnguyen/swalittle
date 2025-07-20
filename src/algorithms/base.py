@@ -38,3 +38,15 @@ class GRPO(BaseAlgorithm):
             for _loss in traj.losses:
                 loss += _loss * score
         return loss / len(trajectories)
+    
+# ---------- DrGRPO ----------
+class DrGRPO(BaseAlgorithm):
+    def compute_loss(self, trajectories):
+        rewards = torch.tensor([sum(t.rewards) for t in trajectories], dtype=torch.float32)
+        z = rewards / (rewards.std(unbiased=False) + 1e-8)
+
+        loss = 0
+        for score, traj in zip(z, trajectories):
+            for _loss in traj.losses:
+                loss += _loss * score
+        return loss / len(trajectories)
