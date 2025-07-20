@@ -96,7 +96,7 @@ class GeneralLLMWrapper(nn.Module):
         for traj in trajectories:
             traj_losses = []
             for state, action in zip(traj.states, traj.actions):
-                prompt = state.strip() + str(action)
+                prompt = state + action
                 inputs = self.tokenizer(prompt, return_tensors='pt').to(self.device)
                 labels = inputs['input_ids'].clone()
                 outputs = self.model(**inputs, labels=labels)

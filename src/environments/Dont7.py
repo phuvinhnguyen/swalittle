@@ -43,7 +43,7 @@ class Dont7Env:
                 raise ValueError
         except ValueError:
             obs = "Invalid move. Please answer with <step>1</step> or <step>2</step>."
-            return obs, -3.0, True, self._build_info()
+            return obs, -1.0, True, self._build_info()
 
         self.last_agent_step = agent_step
         self.cur += agent_step
@@ -59,7 +59,7 @@ class Dont7Env:
 
         obs = self._build_obs()
         info = self._build_info()
-        return obs, 3.0, False, info
+        return obs, 2.0, False, info
 
     # ------------------------------------------------------------------
     # Internal helpers
