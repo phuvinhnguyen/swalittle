@@ -7,7 +7,7 @@ model:
   params:
     state_dim: 4
     action_dim: 2
-algo:
+algorithm:
   class: base.REINFORCE
   params:
     gamma: 0.9

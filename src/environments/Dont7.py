@@ -20,7 +20,8 @@ class Dont7Env:
         Pull the content between <step> and </step>; fall back to the whole
         stripped string if tags are missing.
         """
-        m = re.search(r"You will get minus point if your answer is not in this format.\nAnswer:\n<step>\s*(\d+)\s*</step>", raw, flags=re.I | re.S)
+        m = re.search(r"Answer:\n<step>\s*(\d+)\s*</step>", raw, flags=re.I | re.S)
+        print(m.group(1))
         return m.group(1) if m else raw.strip()
 
     # ------------------------------------------------------------------

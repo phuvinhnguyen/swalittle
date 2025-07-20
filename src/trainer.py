@@ -65,6 +65,7 @@ class Trainer:
                  epochs=100,
                  max_step_each_time=[100],
                  learning_rate=1e-2,
+                 max_history_trajectory=None,
                  optimizer_name='Adam',
                  ):
         self.env = env
@@ -78,6 +79,8 @@ class Trainer:
         self.epochs = epochs
         self.max_step_each_time = max_step_each_time
         self.learning_rate = learning_rate
+        self.max_history_trajectory=max_history_trajectory if isinstance(max_history_trajectory, int) else episodes_per_batch
+        self.trajectories = []
         os.makedirs(report_folder, exist_ok=True)
         self.compute_full_max_step()
 
@@ -106,19 +109,24 @@ class Trainer:
             trajectories.append(Trajectory(states, actions, rewards, losses))
 
         # save trajectories to file
-        file_path = os.path.join(self.report_folder, f'{self.log_name}_trajectories.json')
-        file_trajectories = []
-        if os.path.exists(file_path):
-            with open(file_path, 'r') as f:
-                file_trajectories = json.load(f)
+        try:
+            file_path = os.path.join(self.report_folder, f'{self.log_name}_trajectories.json')
+            file_trajectories = []
+            if os.path.exists(file_path):
+                with open(file_path, 'r') as f:
+                    file_trajectories = json.load(f)
 
-        current_trajectory = [[str(s.states), str(s.actions), str(s.rewards)] for s in trajectories]
-        file_trajectories += [{'trajectory': current_trajectory}]
+            current_trajectory = [[str(s.states), str(s.actions), str(s.rewards)] for s in trajectories]
+            file_trajectories += [{'trajectory': current_trajectory}]
 
-        with open(file_path, 'w') as f:
-            json.dump(file_trajectories, f, indent=4)
+            with open(file_path, 'w') as f:
+                json.dump(file_trajectories, f, indent=4)
+        except Exception as e:
+            print('ERROR: cannot save trajectories - ', e)
 
-        return trajectories, batch_rewards
+        self.trajectories = (self.trajectories + trajectories)[:self.max_history_trajectory]
+
+        return self.trajectories, batch_rewards
 
     def compute_full_max_step(self):
         if len(self.max_step_each_time) == 1:
@@ -139,10 +147,12 @@ class Trainer:
         for epoch, max_step in zip(range(self.epochs), self.max_step_each_time):
             start_time = time.time()
             trajectories, rewards = self.collect_trajectories(max_step)
-            losses = self.policy(trajectories) # loss has same size as trajectories, we need to parse loss to correct transition in the trajectory
+            
+            if not getattr(self.algorithm, 'self_compute', False):
+                losses = self.policy(trajectories) # loss has same size as trajectories, we need to parse loss to correct transition in the trajectory
 
-            for i, loss in enumerate(losses):
-                trajectories[i].losses = loss
+                for i, loss in enumerate(losses):
+                    trajectories[i].losses = loss
 
             loss = self.algorithm.compute_loss(trajectories)
 
@@ -205,7 +215,7 @@ def main():
     model = ModelClass(**model_cfg.get('params', {}))
 
     # Dynamic import for algorithm
-    algo_cfg = config['algo']
+    algo_cfg = config['algorithm']
     algo_module, algo_class = algo_cfg['class'].rsplit('.', 1)
     AlgoClass = dynamic_import(f"algorithms.{algo_module}", algo_class)
     algorithm = AlgoClass(model, **algo_cfg.get('params', {}))

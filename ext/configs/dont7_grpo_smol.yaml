@@ -5,12 +5,12 @@ model:
   class: llm.GeneralLLMWrapper
   params:
     model_name_or_path: "HuggingFaceTB/SmolLM2-135M"
-algo:
+algorithm:
   class: base.DrGRPO
   params:
     gamma: 0.9
 trainer:
-  log_name: "GRPO_Dont7"
+  log_name: "DrGRPO_Dont7"
   episodes_per_batch: 10
   report_folder: "reports"
   epochs: 50

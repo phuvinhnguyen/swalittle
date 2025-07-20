@@ -56,13 +56,60 @@ def is_valid_patch(diff_text: str) -> bool:
     header_pattern = r'^diff --git a/.* b/.*\nindex .*'
     return bool(re.search(header_pattern, diff_text, flags=re.MULTILINE))
 
-def extract_answer(text: str) -> str:
-    """Pull out the <execute>…</execute> block."""
-    m = re.search(r"<execute>(.*?)</execute>", text, re.DOTALL)
-    return m.group(1).strip() if m else ""
+def extract_answer(text: str) -> Tuple[str, str]:
+    """
+    Extract content from the last <plan> and <execute> tags in the text.
+    Returns tuple with (plan_content, execute_content) with specific error messages.
+    Handles cases where only execute tag exists.
+    """
+    # Handle empty/non-string input
+    if not isinstance(text, str) or not text.strip():
+        return ("your answer is empty or not a string", "your answer is empty or not a string")
+
+    # Initialize default error messages
+    plan_msg = "missing <plan> tag"
+    execute_msg = "missing <execute> tag"
+
+    # Check for execute tag independently
+    execute_matches = re.findall(r"<execute>(.*?)</execute>", text, re.DOTALL)
+    has_execute = bool(execute_matches)
+    
+    # Check for plan tag independently
+    plan_matches = re.findall(r"<plan>(.*?)</plan>", text, re.DOTALL)
+    has_plan = bool(plan_matches)
+
+    # Case 1: Only execute exists
+    if has_execute and not has_plan:
+        execute_content = execute_matches[-1].strip()
+        return (
+            "missing <plan> tag",
+            execute_content if execute_content else "empty <execute> command"
+        )
+
+    # Case 2: Find complete plan-execute pairs
+    try:
+        matches = re.findall(
+            r"<plan>(.*?)</plan>\s*<execute>(.*?)</execute>",
+            text,
+            re.DOTALL
+        )
+        if matches:
+            last_plan, last_execute = matches[-1][0].strip(), matches[-1][1].strip()
+            return (
+                last_plan if last_plan else "empty <plan> content",
+                last_execute if last_execute else "empty <execute> command"
+            )
+    except Exception:
+        pass
+
+    # Case 3: Handle malformed/missing tags
+    return (
+        "malformed <plan> tag" if "<plan>" in text or "</plan>" in text else plan_msg,
+        "malformed <execute> tag" if "<execute>" in text or "</execute>" in text else execute_msg
+    )
 
 def remove_comments(patch: str) -> str:
-    """Naïve strip of single-line comments in Python/C/Java/JS/Go."""
+    """Naive strip of single-line comments in Python/C/Java/JS/Go."""
     # Python / C / Java / JS / Go single-line comments
     lines = patch.splitlines()
     cleaned = []
@@ -115,7 +162,7 @@ class SweDataset(Dataset):
 # ------------------------------------------------------------------
 # 3. Container environment
 # ------------------------------------------------------------------
-class ContainerEnv:
+class SweEnv:
     """
     One container instance = one SWE-bench task.
     step() returns (message, reward, terminated?, extra_info)
@@ -126,6 +173,7 @@ class ContainerEnv:
         data_name_or_path: str = "princeton-nlp/SWE-bench_Lite",
         split: str = "test",
         sif_folder: str = "./tmp",
+        use_plan: bool = True,
         base_tools_path: str | None = None,
         tool_list: list[str] | None = None,
     ):
@@ -133,6 +181,7 @@ class ContainerEnv:
         self.sif_folder = sif_folder
         self.base_tools_path = base_tools_path
         self.tool_list = tool_list or []
+        self.use_plan = use_plan
 
         self.current_env: Dict[str, Any] | None = None
         self.project_dir: str | None = None
@@ -228,7 +277,7 @@ class ContainerEnv:
             self._run_command(f"export PATH=$PATH:/mnt/tools/{tool}/bin")
 
         # 6. Return initial prompt
-        return self._build_message("")
+        return self._build_message("", "")
 
     # ----------------------------------------------------------
     # Step
@@ -243,16 +292,17 @@ class ContainerEnv:
             extra     : dict with details
         """
         # 1. Execute
-        cmd = extract_answer(raw_cmd)
+        plan, cmd = extract_answer(raw_cmd)
         output = self._run_command(cmd)
         done = cmd == 'exit'
 
         # 2. Check if the task is completed
         if done:
-            message = "The task is completed"
+            message = "Patch submitted"
             reward = 50.0 * patch_similarity(self.diff, self.current_env["true_patch"])
         else:
-            location = self._run_command("pwd")
+            prev_location = self.location
+            self.location = self._run_command("pwd")
 
             # 3. Diff
             self.diff = self._run_command(f"cd {self.project_dir} && git diff && cd -").strip()
@@ -261,10 +311,10 @@ class ContainerEnv:
             self.history.append((cmd, output))
 
             # 5. Reward
-            reward = 1. / (count_step(location, self.edited_files) + 1)
+            reward = count_step(prev_location, self.edited_files) - count_step(self.location, self.edited_files)
 
             # 6. Build message
-            message = self._build_message(output, location)
+            message = self._build_message(self.location, plan if self.use_plan else "")
 
         # 7. Extra
         extra = {"diff": self.diff, "command": cmd, "output": output}
@@ -273,10 +323,12 @@ class ContainerEnv:
     # ----------------------------------------------------------
     # Prompt builder
     # ----------------------------------------------------------
-    def _build_message(self, last_output: str, location: str = "") -> str:
+    def _build_message(self, location: str = "", plan: str = "") -> str:
         history = "\n".join(
-            f"$ {c}\n{o}" for c, o in self.history[-10:]
-        )  # last 10 rounds
+            f"$ {c}\n{o}" for c, o in self.history[-4:]
+        )  # last 4 rounds
+        history = "\nHistory (last 4 commands and outputs): " + history if history!='' else ""
+        plan = f"\nYour previous plan:\n{plan}" if plan!='' else ""
         prompt = textwrap.dedent(
             f"""\
 Problem statement:
@@ -284,15 +336,17 @@ Problem statement:
 
 Repository location: {self.project_dir}
 Current shell location: {location}
-
-History (last commands and outputs):
 {history}
+{plan}
 
-{last_output}
-
-Your answer must contain the command in the <execute> tag in the end of the answer.
+Your answer must contain your plan in the <plan> tag and the command in the <execute> tag in the end of the answer.
 Example answer:
 I believe that I should go to folder /example/folder in the next step.
+<plan>
+1. go to folder /example/folder
+2. investigate the main problem in this folder and form solution
+3. fix and test if the patch works
+</plan>
 <execute>cd /example/folder</execute>
 """
         ).strip()
@@ -324,7 +378,7 @@ I believe that I should go to folder /example/folder in the next step.
 # 4. Quick sanity check
 # ------------------------------------------------------------------
 if __name__ == "__main__":
-    with ContainerEnv(
+    with SweEnv(
         data_name_or_path="princeton-nlp/SWE-bench_Lite",
         split="test",
         sif_folder="/home/kat/Desktop/FPTAI/swalittle/ext/env",
