@@ -21,6 +21,7 @@ class Dont7Env:
         stripped string if tags are missing.
         """
         m = re.search(r"Answer:\n<step>\s*(\d+)\s*</step>", raw, flags=re.I | re.S)
+        print(m)
         print(m.group(1))
         return m.group(1) if m else raw.strip()
 
