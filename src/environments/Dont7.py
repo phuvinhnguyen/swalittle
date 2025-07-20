@@ -96,7 +96,7 @@ class Dont7Env:
 # ----------------------------------------------------------------------
 if __name__ == "__main__":
     env = Dont7Env(seed=42)
-    obs, info = env.reset()
+    obs = env.reset()
     print(obs, "\n")
 
     for llm_reply in (

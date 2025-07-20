@@ -10,6 +10,7 @@ from datetime import datetime
 import matplotlib
 matplotlib.use('Agg')  # Use non-GUI backend
 import time
+import json
 
 # ---------- Logger ----------
 class Logger:
@@ -103,6 +104,19 @@ class Trainer:
 
             batch_rewards.append(sum(rewards))
             trajectories.append(Trajectory(states, actions, rewards, losses))
+
+        # save trajectories to file
+        f = os.path.join(self.report_folder, f'{self.log_name}_trajectories.json')
+        file_trajectories = []
+        if os.path.exists(f):
+            with open(f, 'r') as f:
+                file_trajectories = json.load(f)
+
+        current_trajectory = [[str(s.states), str(s.actions), str(s.rewards)] for s in trajectories]
+        file_trajectories += [{'trajectory': current_trajectory}]
+
+        with open(f, 'w') as f:
+            json.dump(file_trajectories, f)            
 
         return trajectories, batch_rewards
 
