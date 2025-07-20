@@ -67,9 +67,12 @@ class Dont7Env:
     def _build_obs(self) -> str:
         lines = [
             "Don't-7 Game",
-            "==============",
             f"Current total: {self.cur}",
+            "You need to choose to take 1 or 2 steps from this momment, if you reach 7, you lose.",
             "Reply with your move inside <step> and </step>, e.g. <step>1</step>",
+            "You will get minus point if your answer is not in this format.",
+            "Answer:",
+            "<step>"
         ]
         if self.last_env_step is not None:
             lines.insert(2, f"Environment last added: {self.last_env_step}")

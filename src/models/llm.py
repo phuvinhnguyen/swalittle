@@ -67,7 +67,7 @@ class GeneralLLMWrapper(nn.Module):
         Returns:
             Generated text (action)
         """
-        prompt = state.strip() + "\nAnswer:\n"
+        prompt = state.strip()
         gen_cfg = self.generation_config.copy()
         if deterministic:
             gen_cfg['do_sample'] = False
@@ -91,7 +91,7 @@ class GeneralLLMWrapper(nn.Module):
         for traj in trajectories:
             traj_losses = []
             for state, action in zip(traj.states, traj.actions):
-                prompt = state.strip() + "\n<answer> " + str(action)
+                prompt = state.strip() + str(action)
                 inputs = self.tokenizer(prompt, return_tensors='pt').to(self.device)
                 labels = inputs['input_ids'].clone()
                 outputs = self.model(**inputs, labels=labels)
