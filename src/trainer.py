@@ -106,17 +106,17 @@ class Trainer:
             trajectories.append(Trajectory(states, actions, rewards, losses))
 
         # save trajectories to file
-        f = os.path.join(self.report_folder, f'{self.log_name}_trajectories.json')
+        file_path = os.path.join(self.report_folder, f'{self.log_name}_trajectories.json')
         file_trajectories = []
-        if os.path.exists(f):
-            with open(f, 'r') as f:
+        if os.path.exists(file_path):
+            with open(file_path, 'r') as f:
                 file_trajectories = json.load(f)
 
         current_trajectory = [[str(s.states), str(s.actions), str(s.rewards)] for s in trajectories]
         file_trajectories += [{'trajectory': current_trajectory}]
 
-        with open(f, 'w') as f:
-            json.dump(file_trajectories, f)            
+        with open(file_path, 'w') as f:
+            json.dump(file_trajectories, f, indent=4)
 
         return trajectories, batch_rewards
 
