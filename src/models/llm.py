@@ -80,9 +80,9 @@ class GeneralLLMWrapper(nn.Module):
 
         # remove <step> and </step>
         if gen_text.startswith(prompt):
-            return gen_text
-        else:
-            return prompt + gen_text
+            return gen_text[len(prompt):]
+        
+        return gen_text
 
     def forward(self, trajectories: List[Any]) -> List[List[torch.Tensor]]:
         """

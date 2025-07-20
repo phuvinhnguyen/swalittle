@@ -348,6 +348,8 @@ I believe that I should go to folder /example/folder in the next step.
 3. fix and test if the patch works
 </plan>
 <execute>cd /example/folder</execute>
+
+Your answer:
 """
         ).strip()
         return prompt
