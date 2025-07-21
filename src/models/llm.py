@@ -80,13 +80,13 @@ class GeneralLLMWrapper(nn.Module):
 
         # remove <step> and </step>
         if not gen_text.startswith(prompt):
-            return prompt + gen_text
-        
-        return gen_text
+            return gen_text
+        else:
+            return gen_text[len(prompt):]
 
     def forward(self, trajectories: List[Any]) -> List[List[torch.Tensor]]:
         """
-        Compute loss for each transition in each trajectory.
+        Compute loss only on action tokens (ignore state tokens).
         Args:
             trajectories: list of trajectory objects, each with .states (list of str), .actions (list of str)
         Returns:
@@ -96,13 +96,45 @@ class GeneralLLMWrapper(nn.Module):
         for traj in trajectories:
             traj_losses = []
             for state, action in zip(traj.states, traj.actions):
-                prompt = action
-                print(prompt)
-                inputs = self.tokenizer(prompt, return_tensors='pt').to(self.device)
-                labels = inputs['input_ids'].clone()
-                outputs = self.model(**inputs, labels=labels)
-                loss = outputs.loss  # scalar
-                traj_losses.append(loss)
+                # Tokenize state and action separately to get their lengths
+                state_tokens = self.tokenizer(state, return_tensors="pt", add_special_tokens=False).to(self.device)
+                action_tokens = self.tokenizer(action, return_tensors="pt", add_special_tokens=False).to(self.device)
+                
+                # Combine them (assuming no special tokens like BOS/EOS)
+                input_ids = torch.cat([state_tokens.input_ids, action_tokens.input_ids], dim=1)
+                attention_mask = torch.cat([state_tokens.attention_mask, action_tokens.attention_mask], dim=1)
+                
+                # Labels = input_ids (shifted right later by the model)
+                labels = input_ids.clone()
+                
+                # Create loss mask (0 for state tokens, 1 for action tokens)
+                loss_mask = torch.zeros_like(labels)
+                loss_mask[:, state_tokens.input_ids.shape[1]:] = 1  # Mask only action tokens
+                
+                # Forward pass
+                outputs = self.model(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    labels=labels,
+                )
+                
+                # Extract logits and compute masked loss
+                logits = outputs.logits  # [batch_size, seq_len, vocab_size]
+                shift_logits = logits[..., :-1, :].contiguous()  # Shift for autoregressive loss
+                shift_labels = labels[..., 1:].contiguous()  # Shift labels
+                shift_loss_mask = loss_mask[..., 1:].contiguous()  # Shift mask
+                
+                # Compute cross-entropy loss with masking
+                loss_fct = torch.nn.CrossEntropyLoss(reduction="none")
+                per_token_loss = loss_fct(
+                    shift_logits.view(-1, shift_logits.size(-1)),
+                    shift_labels.view(-1),
+                )  # [batch_size * (seq_len - 1)]
+                
+                # Apply mask and average only over action tokens
+                masked_loss = (per_token_loss * shift_loss_mask.view(-1)).sum() / shift_loss_mask.sum()
+                
+                traj_losses.append(masked_loss)
             all_losses.append(traj_losses)
         return all_losses
 
