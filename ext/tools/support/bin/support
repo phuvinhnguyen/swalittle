@@ -1,0 +1,80 @@
+#!/bin/bash
+
+if [ $# -ne 1 ]; then
+    echo "Usage: $0 <program_name>"
+    exit 1
+fi
+
+x="$1"
+
+# Helper: dump the YAML subsection under "tools.<x>"
+dump_tool() {
+  local cfg="$1"
+  local key="tools.$x"
+
+  if command -v yq >/dev/null 2>&1; then
+    yq eval ".$key" "$cfg"
+    return
+  fi
+
+  # Fixed pure-awk fallback
+  awk -v tool="$x" '
+    # Skip blank lines
+    /^[[:space:]]*$/ { next }
+
+    # Top-level key (no leading spaces) ends the tool section
+    /^[^[:space:]]/  { in_tool = 0 }
+
+    # Start of requested tool: match exact key at indentation level
+    index($0, "  " tool ":") == 1 { 
+      in_tool = 1
+      next
+    }
+
+    # Inside section: print only deeper indented lines (4+ spaces)
+    in_tool && substr($0, 1, 4) == "    " { print }
+
+    # Break section when encountering next tool or top-level key
+    in_tool && substr($0, 1, 2) == "  " && substr($0, 3, 1) != " " { 
+      in_tool = 0 
+    }
+  ' "$cfg"
+}
+
+# Method 1: Use whereis to find the binary and derive config path
+bin_path=$(whereis -b "$x" | awk '{print $2}')
+if [ -n "$bin_path" ]; then
+    config_path="${bin_path%/bin/$x}/config.yaml"
+    if [ -f "$config_path" ]; then
+        dump_tool "$config_path"
+        exit 0
+    fi
+fi
+
+# Method 2: Search through PATH directories
+found_in_path=0
+while IFS=':' read -ra dirs; do
+    for dir in "${dirs[@]}"; do
+        dir="${dir%/}"
+        if [[ "$dir" == *"/$x/bin" ]]; then
+            found_in_path=1
+            config_path="${dir%/bin}/config.yaml"
+            if [ -f "$config_path" ]; then
+                cat "$config_path"
+                exit 0
+            fi
+        fi
+    done
+done <<< "$PATH:"
+
+# Error handling if both methods fail
+if [ -z "$bin_path" ] && [ "$found_in_path" -eq 0 ]; then
+    echo "Error: Program '$x' not found in system paths or PATH" >&2
+    exit 1
+elif [ -n "$bin_path" ] || [ "$found_in_path" -eq 1 ]; then
+    echo "Error: Config file not found for '$x'" >&2
+    echo "Searched locations:" >&2
+    [ -n "$bin_path" ] && echo "- ${bin_path%/bin/$x}/config.yaml" >&2
+    echo "- All PATH directories matching '*/$x/bin' with config.yaml" >&2
+    exit 2
+fi

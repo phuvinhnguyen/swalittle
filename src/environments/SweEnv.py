@@ -3,13 +3,14 @@ Clean, extensible reinforcement-style environment for SWE-bench.
 """
 
 from __future__ import annotations
-import subprocess, atexit, random, os, shutil, re, textwrap
+import subprocess, atexit, random, os, shutil, re, textwrap, uuid
 from typing import Dict, List, Tuple, Any
 from pathlib import Path
 from difflib import SequenceMatcher
 
 from datasets import load_dataset
 from torch.utils.data import Dataset
+random.seed(42)
 
 # ------------------------------------------------------------------
 # 1. Helpers
@@ -147,6 +148,20 @@ class SweDataset(Dataset):
                     "hint": x.get("hints_text", ""),
                     "base_commit": x["base_commit"],
                     "setup_commit": x.get("environment_setup_commit", ""),
+                    "docker_link": f"docker://swebench/sweb.eval.x86_64.{x['instance_id'].replace('__', '_1776_')}",
+                }
+            )
+        elif data_name_or_path.endswith("SWE-smith"):
+            self.data = self.data.map(
+                lambda x: {
+                    "name": x["instance_id"].split("/")[-1],
+                    "problem_statement": x["problem_statement"],
+                    "github_url": f"https://github.com/{x['repo'].strip()}.git",
+                    "true_patch": x["patch"],
+                    "hint": "",
+                    "base_commit": '',
+                    "setup_commit": '',
+                    "docker_link": 'docker://' + x['image_name'],
                 }
             )
         if filter_fn is None:
@@ -173,6 +188,7 @@ class SweEnv:
         data_name_or_path: str = "princeton-nlp/SWE-bench_Lite",
         split: str = "test",
         sif_folder: str = "./tmp",
+        home_mount: str = "./home_mount",
         use_plan: bool = True,
         base_tools_path: str | None = None,
         tool_list: list[str] | None = None,
@@ -182,14 +198,15 @@ class SweEnv:
         self.base_tools_path = base_tools_path
         self.tool_list = tool_list or []
         self.use_plan = use_plan
+        self.home_mount = home_mount
 
         self.current_env: Dict[str, Any] | None = None
         self.project_dir: str | None = None
         self.history: List[Tuple[str, str]] = []
         self.proc: subprocess.Popen | None = None
+        self.location = ''
 
         os.makedirs(self.sif_folder, exist_ok=True)
-        self.reset()
         atexit.register(self.close)
 
     # ----------------------------------------------------------
@@ -219,12 +236,13 @@ class SweEnv:
     # Environment API
     # ----------------------------------------------------------
     def reset(self) -> str:
+        # TODO: allow modify system for some tools to be usable
         """Pick a new task, spin up a fresh container, clone repo, install tools."""
         # 1. Pick task
         self.current_env = random.choice(self.dataset)
         task = self.current_env
 
-        # 2. Build / reuse SIF
+        # 2. Build SIF
         docker_link = task.get("docker_link", "docker://ubuntu:22.04")
         sif_name = re.sub(r"[^\w]", "_", docker_link) + ".sif"
         sif_path = os.path.join(self.sif_folder, sif_name)
@@ -232,13 +250,13 @@ class SweEnv:
             subprocess.run(["apptainer", "build", sif_path, docker_link], check=True)
 
         # 3. Clean home mount
-        if os.path.exists("/tmp/home_mount"):
-            shutil.rmtree("/tmp/home_mount")
-        os.makedirs("/tmp/home_mount", exist_ok=True)
+        if os.path.exists(self.home_mount):
+            shutil.rmtree(self.home_mount)
+        os.makedirs(self.home_mount, exist_ok=True)
 
         # 4. Start container
         self.close()
-        binds = [f"/tmp/home_mount:/home"]
+        binds = [f"{self.home_mount}:/project"]
         if self.base_tools_path:
             binds.append(f"{self.base_tools_path}:/mnt/tools")
         bind_arg = ",".join(binds)
@@ -247,7 +265,7 @@ class SweEnv:
             [
                 "apptainer", "exec",
                 "--containall", "--cleanenv", "--no-home",
-                "--pwd", "/home",
+                "--pwd", "/project",
                 "--bind", bind_arg,
                 sif_path,
                 "/bin/bash", "-c",
@@ -259,21 +277,18 @@ class SweEnv:
             text=True,
             bufsize=1,
         )
+        self._run_command("cp -a /testbed/. /project")
 
         # 5. Clone repo and install tools
-        self.project_dir = f"/home/{task['name']}"
+        self.project_dir = "/project"
         self.history.clear()
 
         # 6. Setup variables and environment
         self.edited_files = extract_edited_files(task['true_patch'], self.project_dir)
         self.diff = ''
 
-        # self._run_command(f"git clone {task['github_url']} {self.project_dir}")
-        # if os.path.exists(f"{self.project_dir}/requirements.txt"):
-        #     self._run_command(f"cd {self.project_dir} && python3 -m pip install -r requirements.txt")
-
         for tool in self.tool_list:
-            self._run_command(f"bash /mnt/tools/{tool}/install.sh")
+            self._run_command(f"source /mnt/tools/{tool}/install.sh")
             self._run_command(f"export PATH=$PATH:/mnt/tools/{tool}/bin")
 
         # 6. Return initial prompt
@@ -339,13 +354,23 @@ Current shell location: {location}
 {history}
 {plan}
 
+Some programs can be used to help you:
+{', '.join([f"`{tool}`" for tool in self.tool_list])}
+
+You can use the support command to get the documentation of a program using this format: support <command|program>
+Example:
+- support search # this is program name, you cannot use search command but this program includes the search_file command
+- support search_file # this is the command you can use
+
 Your answer must contain your plan in the <plan> tag and the command in the <execute> tag in the end of the answer.
+When you are done, you must exit the container by running "exit" command in the <execute> tag.
 Example answer:
-I believe that I should go to folder /example/folder in the next step.
+After finishing the previous step, I believe that I should go to folder /example/folder in the next step.
 <plan>
-1. go to folder /example/folder
-2. investigate the main problem in this folder and form solution
-3. fix and test if the patch works
+1. previous step - done
+2. go to folder /example/folder - doing
+3. investigate the main problem in this folder and form solution - possibly doing
+4. fix and test if the patch works - must do
 </plan>
 <execute>cd /example/folder</execute>
 
@@ -362,6 +387,7 @@ Your answer:
             try:
                 self.proc.stdin.write("exit\n")
                 self.proc.stdin.flush()
+                self.proc.terminate()
                 self.proc.wait(timeout=3)
             except Exception:
                 self.proc.kill()
@@ -377,7 +403,7 @@ Your answer:
         self.close()
 
 # ------------------------------------------------------------------
-# 4. Quick sanity check
+# 4. Quick sanity check with human-in-the-loop
 # ------------------------------------------------------------------
 if __name__ == "__main__":
     with SweEnv(
@@ -385,11 +411,40 @@ if __name__ == "__main__":
         split="test",
         sif_folder="/home/kat/Desktop/FPTAI/swalittle/ext/env",
         base_tools_path="/home/kat/Desktop/FPTAI/swalittle/ext/tools",
-        tool_list=["search"],
+        tool_list=["search", "web_browser", "windowed", "windowed_edit_linting", "filemap", "diff_state", "registry", "support"],
     ) as env:
         env.reset()
-        for i, command in enumerate(['pwd', 'touch a.txt', 'ls', 'exit']):
-            msg, reward, done, extra = env.step(f"<execute>{command}</execute>")
-            print(f"Step {i+1}: command={command}, reward={reward}, done={done}\n{extra['output']}")
-            if done:
+        print("SWE Interactive Shell - Type commands or 'exit' to quit")
+        
+        step_count = 0
+        while True:
+            try:
+                # Nhập lệnh từ người dùng
+                command = input("\n$ ")
+                
+                # Thoát nếu người dùng nhập exit
+                if command.lower() == "exit":
+                    print("Exiting interactive shell...")
+                    break
+                    
+                # Đóng gói lệnh trong thẻ execute
+                wrapped_command = f"<execute>{command}</execute>"
+                
+                # Thực thi lệnh trong môi trường
+                msg, reward, done, extra = env.step(wrapped_command)
+                step_count += 1
+                
+                # Hiển thị kết quả
+                print(f"\nStep {step_count}:")
+                print(msg)
+                
+                # Thoát nếu môi trường báo done
+                if done:
+                    print("Environment terminated.")
+                    break
+                    
+            except KeyboardInterrupt:
+                print("\nInterrupted by user. Exiting...")
                 break
+            except Exception as e:
+                print(f"Error executing command: {str(e)}")

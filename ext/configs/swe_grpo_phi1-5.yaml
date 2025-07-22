@@ -1,0 +1,19 @@
+environment:
+  class: SweEnv.SweEnv
+  params:
+    base_tools_path: "./src/tools"
+    tool_list: ["search"]
+model:
+  class: llm.GeneralLLMWrapper
+  params:
+    model_name_or_path: "Qwen/Qwen3-0.6B"
+algorithm:
+  class: base.GRPO
+  params:
+    gamma: 0.9
+trainer:
+  log_name: "GRPO_SWE"
+  episodes_per_batch: 10
+  report_folder: "reports"
+  epochs: 50
+  max_step_each_time: [30, 40, 100]

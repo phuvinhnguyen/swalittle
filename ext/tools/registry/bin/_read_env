@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# getenv.sh VAR_NAME [DEFAULT]
+
+var_name=$1
+default_value=${2:-""}
+
+printf '%s\n' "${!var_name:-$default_value}"
