@@ -12,10 +12,10 @@ model:
   params:
     model_name_or_path: "Qwen/Qwen3-0.6B"
     peft_config:
-      r: 8
+      r: 16
       lora_alpha: 32
       lora_dropout: 0.1
-      target_modules: ["q_proj", "v_proj"]
+      target_modules: ["q_proj", "v_proj", "k_proj"]
       bias: "none"
 algorithm:
   class: base.GRPO
