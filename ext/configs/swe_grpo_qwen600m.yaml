@@ -1,0 +1,33 @@
+environment:
+  class: SweEnv.SweEnv
+  params:
+    data_name_or_path: "princeton-nlp/SWE-bench_Lite"
+    split: "test"
+    base_tools_path: "ext/tools"
+    sif_folder: "ext/env"
+    use_plan: true
+    tool_list: ["search", "web_browser", "windowed", "windowed_edit_linting", "filemap", "diff_state", "registry", "support"]
+model:
+  class: llm.GeneralLLMWrapper
+  params:
+    model_name_or_path: "Qwen/Qwen3-0.6B"
+    peft_config:
+      r: 8
+      lora_alpha: 32
+      lora_dropout: 0.1
+      target_modules: ["q_proj", "v_proj"]
+      bias: "none"
+algorithm:
+  class: base.GRPO
+  params:
+    gamma: 0.9
+trainer:
+  log_name: "GRPO_SWE"
+  episodes_per_batch: 10
+  report_folder: "reports"
+  epochs: 100
+  save_every: 8
+  max_step_each_time: [30, 40, 100]
+  learning_rate: 1e-4
+  max_history_trajectory: 30
+  optimizer_name: "AdamW"

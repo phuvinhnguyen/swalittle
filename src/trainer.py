@@ -64,6 +64,7 @@ class Trainer:
                  report_folder="reports",
                  epochs=100,
                  max_step_each_time=[100],
+                 save_every = 3,
                  learning_rate=1e-2,
                  max_history_trajectory=None,
                  optimizer_name='Adam',
@@ -73,6 +74,7 @@ class Trainer:
         self.algorithm = algorithm
         self.optimizer = getattr(torch.optim, optimizer_name)(policy.parameters(), lr=learning_rate)
         self.episodes_per_batch = episodes_per_batch
+        self.save_every = save_every
         self.logger = Logger()
         self.log_name = log_name
         self.report_folder = report_folder
@@ -164,6 +166,10 @@ class Trainer:
             avg_reward = np.mean(rewards)
             self.logger.log(loss.item(), avg_reward)
             print(f"[{self.log_name}] Epoch {epoch:3d} | Time: {running_time:.2f}s | Max Step: {max_step} | Loss: {loss.item():.3f} | Avg Reward: {avg_reward:.2f}")
+
+            if epoch % self.save_every == 0:
+                print(f"[{self.log_name}] Saving model at epoch {epoch}")
+                self.save_model()
 
     def test(self, episodes=5, render=False):
         total = 0

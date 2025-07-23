@@ -188,7 +188,6 @@ class SweEnv:
         data_name_or_path: str = "princeton-nlp/SWE-bench_Lite",
         split: str = "test",
         sif_folder: str = "./tmp",
-        home_mount: str = "./home_mount",
         use_plan: bool = True,
         base_tools_path: str | None = None,
         tool_list: list[str] | None = None,
@@ -198,7 +197,6 @@ class SweEnv:
         self.base_tools_path = base_tools_path
         self.tool_list = tool_list or []
         self.use_plan = use_plan
-        self.home_mount = home_mount
 
         self.current_env: Dict[str, Any] | None = None
         self.project_dir: str | None = None
@@ -247,16 +245,11 @@ class SweEnv:
         sif_name = re.sub(r"[^\w]", "_", docker_link) + ".sif"
         sif_path = os.path.join(self.sif_folder, sif_name)
         if not os.path.exists(sif_path):
-            subprocess.run(["apptainer", "build", sif_path, docker_link], check=True)
-
-        # 3. Clean home mount
-        if os.path.exists(self.home_mount):
-            shutil.rmtree(self.home_mount)
-        os.makedirs(self.home_mount, exist_ok=True)
+            subprocess.run(["apptainer", "pull", sif_path, docker_link], check=True)
 
         # 4. Start container
         self.close()
-        binds = [f"{self.home_mount}:/project"]
+        binds = []
         if self.base_tools_path:
             binds.append(f"{self.base_tools_path}:/mnt/tools")
         bind_arg = ",".join(binds)
@@ -264,8 +257,8 @@ class SweEnv:
         self.proc = subprocess.Popen(
             [
                 "apptainer", "exec",
-                "--containall", "--cleanenv", "--no-home",
-                "--pwd", "/project",
+                "--containall", "--cleanenv", "--no-home", "--writable-tmpfs",
+                "--pwd", "/testbed",
                 "--bind", bind_arg,
                 sif_path,
                 "/bin/bash", "-c",
@@ -277,10 +270,8 @@ class SweEnv:
             text=True,
             bufsize=1,
         )
-        self._run_command("cp -a /testbed/. /project")
-
         # 5. Clone repo and install tools
-        self.project_dir = "/project"
+        self.project_dir = "/testbed"
         self.history.clear()
 
         # 6. Setup variables and environment
@@ -355,7 +346,7 @@ Current shell location: {location}
 {plan}
 
 Some programs can be used to help you:
-{', '.join([f"`{tool}`" for tool in self.tool_list])}
+{', '.join([f'`{tool}`' for tool in self.tool_list])}
 
 You can use the support command to get the documentation of a program using this format: support <command|program>
 Example:
