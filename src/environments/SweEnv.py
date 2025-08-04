@@ -189,14 +189,26 @@ class SweEnv:
         split: str = "test",
         sif_folder: str = "./tmp",
         use_plan: bool = True,
+        hint_rate: float = 0.0,
+        good_hint: str = "<|HINT: This is a good move, try to elaborate more on this move|>",
+        bad_hint: str = "<|HINT: This seems not a good move, try to understand why it is not|>",
         base_tools_path: str | None = None,
         tool_list: list[str] | None = None,
+        is_test: bool = False,
+        prompt_template: str = "",
     ):
         self.dataset = SweDataset(data_name_or_path, split)
         self.sif_folder = sif_folder
         self.base_tools_path = base_tools_path
         self.tool_list = tool_list or []
         self.use_plan = use_plan
+        self.hint_rate = hint_rate
+        self.good_hint = good_hint
+        self.bad_hint = bad_hint
+        self.prompt_template = prompt_template
+        self.is_test = is_test
+        self.dataset_idx = 0
+        self.len_dataset = len(self.dataset)
 
         self.current_env: Dict[str, Any] | None = None
         self.project_dir: str | None = None
@@ -237,7 +249,13 @@ class SweEnv:
         # TODO: allow modify system for some tools to be usable
         """Pick a new task, spin up a fresh container, clone repo, install tools."""
         # 1. Pick task
-        self.current_env = random.choice(self.dataset)
+        if self.is_test:
+            self.current_env = self.dataset[self.dataset_idx]
+            self.dataset_idx += 1
+            if self.dataset_idx >= self.len_dataset:
+                return None
+        else:
+            self.current_env = random.choice(self.dataset)
         task = self.current_env
 
         # 2. Build SIF
@@ -283,7 +301,10 @@ class SweEnv:
             self._run_command(f"export PATH=$PATH:/mnt/tools/{tool}/bin")
 
         # 6. Return initial prompt
-        return self._build_message("", "")
+        if self.is_test:
+            return self._build_message("", ""), self.dataset[self.dataset_idx]
+        else:
+            return self._build_message("", "")
 
     # ----------------------------------------------------------
     # Step
@@ -301,6 +322,7 @@ class SweEnv:
         plan, cmd = extract_answer(raw_cmd)
         output = self._run_command(cmd)
         done = cmd == 'exit'
+        self.location = self._run_command("pwd")
 
         # 2. Check if the task is completed
         if done:
@@ -320,7 +342,7 @@ class SweEnv:
             reward = count_step(prev_location, self.edited_files) - count_step(self.location, self.edited_files)
 
             # 6. Build message
-            message = self._build_message(self.location, plan if self.use_plan else "")
+            message = self._build_message(self.location, plan if self.use_plan else "", reward)
 
         # 7. Extra
         extra = {"diff": self.diff, "command": cmd, "output": output}
@@ -329,46 +351,35 @@ class SweEnv:
     # ----------------------------------------------------------
     # Prompt builder
     # ----------------------------------------------------------
-    def _build_message(self, location: str = "", plan: str = "") -> str:
+    def _build_message(self, location: str = "", plan: str = "", reward: float = None) -> str:
         history = "\n".join(
             f"$ {c}\n{o}" for c, o in self.history[-4:]
         )  # last 4 rounds
         history = "\nHistory (last 4 commands and outputs): " + history if history!='' else ""
+        if reward is not None:
+            if random.random() < self.hint_rate:
+                if reward > 0:
+                    history += self.good_hint
+                else:
+                    history += self.bad_hint
         plan = f"\nYour previous plan:\n{plan}" if plan!='' else ""
+        
+        print(self.prompt_template)
+
         prompt = textwrap.dedent(
-            f"""\
-Problem statement:
-{self.current_env['problem_statement']}
-
-Repository location: {self.project_dir}
-Current shell location: {location}
-{history}
-{plan}
-
-Some programs can be used to help you:
-{', '.join([f'`{tool}`' for tool in self.tool_list])}
-
-You can use the support command to get the documentation of a program using this format: support <command|program>
-Example:
-- support search # this is program name, you cannot use search command but this program includes the search_file command
-- support search_file # this is the command you can use
-
-Your answer must contain your plan in the <plan> tag and the command in the <execute> tag in the end of the answer.
-When you are done, you must exit the container by running "exit" command in the <execute> tag.
-Example answer:
-After finishing the previous step, I believe that I should go to folder /example/folder in the next step.
-<plan>
-1. previous step - done
-2. go to folder /example/folder - doing
-3. investigate the main problem in this folder and form solution - possibly doing
-4. fix and test if the patch works - must do
-</plan>
-<execute>cd /example/folder</execute>
-
-Your answer:
-"""
+            self.prompt_template.format(
+                problem_statement=self.current_env['problem_statement'],
+                project_dir=self.project_dir,
+                location=location,
+                history=history,
+                plan=plan,
+                tool_list=', '.join([f'`{tool}`' for tool in self.tool_list]),
+            )
         ).strip()
         return prompt
+    
+    def normalize_state(self, state: str) -> str:
+        return state.replace(self.good_hint, "").replace(self.bad_hint, "")
 
     # ----------------------------------------------------------
     # Teardown
@@ -403,6 +414,38 @@ if __name__ == "__main__":
         sif_folder="/home/kat/Desktop/FPTAI/swalittle/ext/env",
         base_tools_path="/home/kat/Desktop/FPTAI/swalittle/ext/tools",
         tool_list=["search", "web_browser", "windowed", "windowed_edit_linting", "filemap", "diff_state", "registry", "support"],
+        hint_rate=0.5,
+        prompt_template='''\
+Problem statement:
+{problem_statement}
+
+Repository location: {project_dir}
+Current shell location: {location}
+{history}
+{plan}
+
+Some programs can be used to help you:
+{tool_list}
+
+You can use the support command to get the documentation of a program using this format: support <command|program>
+Example:
+- support search  # this is program name, you cannot use search command but this program includes the search_file command
+- support search_file  # this is the command you can use
+
+Your answer must contain your plan in the <plan> tag and the command in the <execute> tag in the end of the answer.
+When you are done, you must exit the container by running "exit" command in the <execute> tag.
+Example answer:
+After finishing the previous step, I believe that I should go to folder /example/folder in the next step.
+<plan>
+1. previous step - done
+2. go to folder /example/folder - doing
+3. investigate the main problem in this folder and form solution - possibly doing
+4. fix and test if the patch works - must do
+</plan>
+<execute>cd /example/folder</execute>
+
+Your answer:
+'''
     ) as env:
         env.reset()
         print("SWE Interactive Shell - Type commands or 'exit' to quit")
